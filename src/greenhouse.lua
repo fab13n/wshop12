@@ -3,6 +3,7 @@ local M = { }
 local modbus     = require 'modbus'
 local log        = require 'log'
 local airvantage = require 'airvantage'
+local lock       = require 'lock'
 
 M.conf = {
     asset_name = 'arduino',
@@ -15,6 +16,7 @@ M.process = require 'processors'
 
 --- Reads all variables, returns them as keys/values in a record
 function M.read_all()
+	lock.lock(M)
 	local str_value = assert(M.modbus_client:readHoldingRegisters(1, 0, 9))
 	local record = { }
 	for name, n in pairs(M.process.NAME2REG) do
@@ -24,6 +26,7 @@ function M.read_all()
 		if processor then value = processor(value) end
 		record[name] = value
 	end
+	lock.unlock(M)
 	return record
 end
 
@@ -66,6 +69,17 @@ function M.on_m2mop_setting(asset, record)
 	return 'ok'
 end
 
+--- Reacts to a request from the server to blink the light.
+function M.on_blink_cmd(asset)
+	lock.lock(M)
+	for i=1, 10 do
+		M.write('light', i%2==0)
+		sched.wait(1)
+	end
+	lock.unlock(M)
+	return 'ok'
+end
+
 --- Initializes the module
 function M.init()
 	if M.initialized then return M end
@@ -74,6 +88,7 @@ function M.init()
 
 	M.asset = airvantage.newasset(M.conf.asset_name)
 	M.asset.tree.__default = M.on_m2mop_setting
+	M.asset.tree.commands.blink = M.on_blink_cmd
 	M.asset :start()
 
 	sched.run(M.poll_loop)
