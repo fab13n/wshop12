@@ -2,8 +2,10 @@ local M = { }
 
 local modbus     = require 'modbus'
 local log        = require 'log'
+local airvantage = require 'airvantage'
 
 M.conf = {
+    asset_name = 'arduino',
 	modbus = {
 		port  = '/dev/ttyACM0',
 		speed = 9600 } }
@@ -40,24 +42,39 @@ M.last_values = { }
 --- Regularly runs the MQTT handler for incoming commands
 function M.poll_loop()
 	sched.wait(2) -- Modbus needs some time to initialize itself
-	while true do
+	for i=0, math.huge do
 		local record = M.read_all()
+		if i%10~=0 then record = { button=record.button } end
 		for k, v in pairs(record) do
 			local last_v = M.last_values[k]
 			if v~=last_v then
 				log('WSHOP12', 'INFO', "Value change: %s: %s->%s", k, tostring(last_v), tostring(v))
 				M.last_values[k]=v
-				sched.signal(M.last_values, k, last_v, v)
-			end
+			else record[k]=nil end
+		end
+		if next(record) then 
+			record.timestamp=os.time()
+			M.asset :pushdata ('', record, 'now')
 		end
 		sched.wait(1)
 	end
+end
+
+--- Reacts to settings sent by m2mop.net by sending them to Arduino
+function M.on_m2mop_setting(asset, record)
+	for k, v in pairs(record) do assert(M.write(k, v)) end
+	return 'ok'
 end
 
 --- Initializes the module
 function M.init()
 	if M.initialized then return M end
 	M.modbus_client = assert(modbus.new(M.conf.modbus.port, { baudRate = M.conf.modbus.speed }))
+	assert(airvantage.init())
+
+	M.asset = airvantage.newasset(M.conf.asset_name)
+	M.asset.tree.__default = M.on_m2mop_setting
+	M.asset :start()
 
 	sched.run(M.poll_loop)
 
