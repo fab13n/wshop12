@@ -15,21 +15,22 @@ M.conf = {
 		data_path = '/eclipsecon/demo-mihini/data/',
 		cmd_path  = '/eclipsecon/demo-mihini/command/' } }
 
+
 --- Converter between Modbus coil/value, symbolic names and physical values
 M.process = require 'processors'
 
---- Reads a physical value from a symbolic variable
-function M.read(name)
-	checks('string')
-	local address = M.process.NAME2REG[name] or error ("Undefined modbus variable "..name)
-	local str_value = assert(M.modbus_client:readHoldingRegisters(1, address, 1))
-	local low, high = str_value :byte (1, 2)
-	local value = 256*high + low
-	local processor = M.process.read[name]
-	if processor then value = processor(value) end
-	local mqtt_value = value==true and 1 or value==false and 0 or value
-	M.mqtt_client :publish (M.conf.mqtt.data_path..name, mqtt_value)
-	return value
+--- Reads all variables, returns them as keys/values in a record
+function M.read_all()
+	local str_value = assert(M.modbus_client:readHoldingRegisters(1, 0, 9))
+	local record = { }
+	for name, n in pairs(M.process.NAME2REG) do
+		local low, high = str_value :byte (2*n+1, 2*n+2)
+		local value = 256*high + low
+		local processor = M.process.read[name]
+		if processor then value = processor(value) end
+		record[name] = value
+	end
+	return record
 end
 
 --- Writes a physical value into a symbolic variable
@@ -44,9 +45,22 @@ function M.write(name, value)
 	return assert(M.modbus_client :writeMultipleRegisters (1, address, str_value))
 end
 
+M.last_values = { }
+
 --- Regularly runs the MQTT handler for incoming commands
-function M.mqtt_poll_loop()
+function M.poll_loop()
+	sched.wait(2) -- Modbus needs some time to initialize itself
 	while true do
+		local record = M.read_all()
+		for k, v in pairs(record) do
+			local last_v = M.last_values[k]
+			if v~=last_v then
+				log('WSHOP12', 'INFO', "Value change: %s: %s->%s", k, tostring(last_v), tostring(v))
+				local mqtt_value = not v and '0' or v==true and '1' or tostring(v)
+				M.mqtt_client :publish (M.conf.mqtt.data_path..k, mqtt_value)
+				M.last_values[k]=v
+			end
+		end
 		M.mqtt_client :handler()
 		sched.wait(1)
 	end
@@ -66,7 +80,7 @@ function M.init()
 	M.mqtt_client   = assert(mqtt.client.create(M.conf.mqtt.host, M.conf.mqtt.port, M.mqtt_callback))
 	M.mqtt_client :connect (M.conf.mqtt.id)
 	M.mqtt_client :subscribe{ M.conf.mqtt.cmd_path.."#" }
-	sched.run(M.mqtt_poll_loop)
+	sched.run(M.poll_loop)
 
 	M.initialized = true
 	return M
