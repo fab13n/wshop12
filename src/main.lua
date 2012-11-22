@@ -1,6 +1,8 @@
 local sched = require 'sched'
 local telnet = require 'shell.telnet'
 
+M = require 'greenhouse'
+
 function watch(em,ev)
 	sched.sighook (em, ev or '*', function(ev, ...)
 		printf("Signal: %s.%s(%s)", tostring(em), ev, sprint{...} :gsub (2, -2))
@@ -10,6 +12,7 @@ end
 local function main ()
 	log.displaylogger = print
 	log.setlevel('INFO')
+	assert(M.init())
 	telnet.init{ editmode='edit', address='*', port=2323, historysize=256 }
 end
 
