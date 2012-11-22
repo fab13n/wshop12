@@ -58,6 +58,7 @@ function M.poll_loop()
 				log('WSHOP12', 'INFO', "Value change: %s: %s->%s", k, tostring(last_v), tostring(v))
 				local mqtt_value = not v and '0' or v==true and '1' or tostring(v)
 				M.mqtt_client :publish (M.conf.mqtt.data_path..k, mqtt_value)
+				sched.signal(M.last_values, k, last_v, v)
 				M.last_values[k]=v
 			end
 		end
@@ -72,6 +73,15 @@ function M.mqtt_callback(topic, value)
 	local var_name = topic :match "[^/]+$"
 	M.write(var_name, value=='1')
 end
+
+--- When the button is released, invert the light's state
+function M.on_button_changed(ev, old_val, new_val)
+	if not new_val then -- button released
+		local is_light_on = M.read 'light'
+		M.write('light', not is_light_on)
+	end
+end
+sched.sigrun(M.last_values, 'button', M.on_button_changed)
 
 --- Initializes the module
 function M.init()
