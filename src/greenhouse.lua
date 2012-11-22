@@ -11,13 +11,17 @@ M.conf = {
 --- Reads a Modbus coil value, return it as a binary string
 function M.read(address)
 	checks('number')
-	return assert(M.modbus_client:readHoldingRegisters(1, address, 1))
+	local str_value = assert(M.modbus_client:readHoldingRegisters(1, address, 1))
+	local low, high = str_value :byte (1, 2)
+	local value = 256*high + low
+	return value
 end
 
 --- Writes a binary string in a coil
 function M.write(address, value)
-	checks('number', 'string')
-	return assert(M.modbus_client :writeMultipleRegisters (1, address, value))
+	checks('number', 'number')
+	local str_value = string.pack('h', value)
+	return assert(M.modbus_client :writeMultipleRegisters (1, address, str_value))
 end
 
 --- Initializes the module
