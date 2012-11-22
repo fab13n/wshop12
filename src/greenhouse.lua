@@ -8,18 +8,27 @@ M.conf = {
 		port  = '/dev/ttyACM0',
 		speed = 9600 } }
 
---- Reads a Modbus coil value, return it as a binary string
-function M.read(address)
-	checks('number')
+--- Converter between Modbus coil/value, symbolic names and physical values
+M.process = require 'processors'
+
+--- Reads a physical value from a symbolic variable
+function M.read(name)
+	checks('string')
+	local address = M.process.NAME2REG[name] or error ("Undefined modbus variable "..name)
 	local str_value = assert(M.modbus_client:readHoldingRegisters(1, address, 1))
 	local low, high = str_value :byte (1, 2)
 	local value = 256*high + low
+	local processor = M.process.read[name]
+	if processor then value = processor(value) end
 	return value
 end
 
---- Writes a binary string in a coil
-function M.write(address, value)
-	checks('number', 'number')
+--- Writes a physical value into a symbolic variable
+function M.write(name, value)
+	checks('string', '?')
+	local address = M.process.NAME2REG[name] or error ("Undefined modbus variable "..name)
+	local processor = M.process.write[name]
+	if processor then value = processor(value) end	
 	local str_value = string.pack('h', value)
 	return assert(M.modbus_client :writeMultipleRegisters (1, address, str_value))
 end
