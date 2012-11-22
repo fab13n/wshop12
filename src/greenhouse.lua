@@ -1,20 +1,12 @@
 local M = { }
 
-local modbus = require 'modbus'
-local log    = require 'log'
-local mqtt   = require 'mqtt_library'
+local modbus     = require 'modbus'
+local log        = require 'log'
 
 M.conf = {
 	modbus = {
 		port  = '/dev/ttyACM0',
-		speed = 9600 },
-	mqtt = {
-		id        = 'MODBUS_APP',
-		port      = 1883,
-		host      = 'm2m.eclipse.org',
-		data_path = '/eclipsecon/demo-mihini/data/',
-		cmd_path  = '/eclipsecon/demo-mihini/command/' } }
-
+		speed = 9600 } }
 
 --- Converter between Modbus coil/value, symbolic names and physical values
 M.process = require 'processors'
@@ -39,8 +31,6 @@ function M.write(name, value)
 	local address = M.process.NAME2REG[name] or error ("Undefined modbus variable "..name)
 	local processor = M.process.write[name]
 	if processor then value = processor(value) end	
-	local mqtt_value = value==true and 1 or value==false and 0 or value
-	M.mqtt_client :publish (M.conf.mqtt.data_path..name, tostring(value))
 	local str_value = string.pack('h', value)
 	return assert(M.modbus_client :writeMultipleRegisters (1, address, str_value))
 end
@@ -56,40 +46,19 @@ function M.poll_loop()
 			local last_v = M.last_values[k]
 			if v~=last_v then
 				log('WSHOP12', 'INFO', "Value change: %s: %s->%s", k, tostring(last_v), tostring(v))
-				local mqtt_value = not v and '0' or v==true and '1' or tostring(v)
-				M.mqtt_client :publish (M.conf.mqtt.data_path..k, mqtt_value)
-				sched.signal(M.last_values, k, last_v, v)
 				M.last_values[k]=v
+				sched.signal(M.last_values, k, last_v, v)
 			end
 		end
-		M.mqtt_client :handler()
 		sched.wait(1)
 	end
 end
-
---- Reacts to MQTT incoming commands
-function M.mqtt_callback(topic, value)
-	log('WSHOP12', 'INFO', "Incoming MQTT command %s=%s", tostring(topic), tostring(value))
-	local var_name = topic :match "[^/]+$"
-	M.write(var_name, value=='1')
-end
-
---- When the button is released, invert the light's state
-function M.on_button_changed(ev, old_val, new_val)
-	if not new_val then -- button released
-		local is_light_on = M.read 'light'
-		M.write('light', not is_light_on)
-	end
-end
-sched.sigrun(M.last_values, 'button', M.on_button_changed)
 
 --- Initializes the module
 function M.init()
 	if M.initialized then return M end
 	M.modbus_client = assert(modbus.new(M.conf.modbus.port, { baudRate = M.conf.modbus.speed }))
-	M.mqtt_client   = assert(mqtt.client.create(M.conf.mqtt.host, M.conf.mqtt.port, M.mqtt_callback))
-	M.mqtt_client :connect (M.conf.mqtt.id)
-	M.mqtt_client :subscribe{ M.conf.mqtt.cmd_path.."#" }
+
 	sched.run(M.poll_loop)
 
 	M.initialized = true
