@@ -71,12 +71,15 @@ end
 
 --- Reacts to a request from the server to blink the light.
 function M.on_blink_cmd(asset)
-	lock.lock(M)
-	for i=1, 10 do
-		M.write('light', i%2==0)
-		sched.wait(1)
+	local function blinker()
+		lock.lock(M)
+		for i=1, 10 do
+			M.write('light', i%2==0)
+			sched.wait(1)
+		end
+		lock.unlock(M)
 	end
-	lock.unlock(M)
+	sched.run(blinker)
 	return 'ok'
 end
 
