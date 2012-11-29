@@ -20,7 +20,8 @@ function M.read.luminosity(x)
 end
 
 function M.read.humidity(x)
-	return x<400 and 0 or (x-300)/.45
+	return math.max(1000-x,0) / 10
+	--return x<400 and 0 or (x-300)/.45
 end 
 
 function M.read.temperature(x)
